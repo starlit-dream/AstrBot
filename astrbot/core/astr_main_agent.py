@@ -268,6 +268,7 @@ async def _apply_mem0_and_short_term(
         return
     try:
         from astrbot.core.memory.mem0_bridge import (
+            ensure_mem0_installed,
             format_mem0_for_system,
             init_mem0,
             search_long_term,
@@ -290,8 +291,18 @@ async def _apply_mem0_and_short_term(
             bool(config.mem0_config),
         )
 
+        mem0_available = False
         if config.mem0_config:
-            init_mem0(config.mem0_config)
+            mem0_available = await ensure_mem0_installed()
+            if mem0_available:
+                init_mem0(config.mem0_config)
+            else:
+                logger.warning("Mem0 依赖不可用，本轮仅启用短期窗口，不注入长期记忆。")
+        else:
+            logger.warning(
+                "Mem0 已启用但未配置 mem0_config，本轮仅启用短期窗口，不注入长期记忆。"
+            )
+
         window = await load_window(event.unified_msg_origin)
         logger.info(
             "短期窗口加载完成：umo=%s, entries=%d",
@@ -307,22 +318,30 @@ async def _apply_mem0_and_short_term(
                 config.mem0_active_max,
                 len(pending),
             )
-            ok = await add_from_pending(event.unified_msg_origin, pending)
+            ok = False
+            if mem0_available:
+                ok = await add_from_pending(event.unified_msg_origin, pending)
+            else:
+                logger.warning("Mem0 不可用，跳过提交 pending（将保留待下次重试）。")
             if ok:
                 remove_pending_after_add(window, pending)
-                await save_window(window)
             else:
                 logger.warning("Mem0 add 失败，pending 保留在窗口中")
+            # 无论提交是否成功，都保存窗口（pending 标记或清理都需要落盘）
+            await save_window(window)
 
         req.contexts = entries_to_context_messages(window.entries)
         event.set_extra("short_term_window", window)
 
         query = req.prompt or "[当前消息]"
-        mem0_memories = await search_long_term(
-            event.unified_msg_origin,
-            query,
-            limit=5,
-        )
+        if mem0_available:
+            mem0_memories = await search_long_term(
+                event.unified_msg_origin,
+                query,
+                limit=5,
+            )
+        else:
+            mem0_memories = []
         logger.info(
             "Mem0 search 完成：umo=%s, 注入条数=%d",
             event.unified_msg_origin,

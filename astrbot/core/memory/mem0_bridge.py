@@ -2,11 +2,66 @@
 
 from __future__ import annotations
 
+import asyncio
+import importlib
 from typing import Any
 
 from astrbot.core import logger
 
 from .models import ShortTermEntry
+
+
+_MEM0_INSTALL_LOCK = asyncio.Lock()
+_MEM0_INSTALL_ATTEMPTED = False
+
+
+async def ensure_mem0_installed() -> bool:
+    """确保 mem0ai 已安装并可导入。
+
+    - 未安装：打印 warning 并自动尝试安装 mem0ai
+    - 安装失败：打印 error
+    """
+    global _MEM0_INSTALL_ATTEMPTED
+    try:
+        from mem0 import Memory  # noqa: F401
+
+        return True
+    except ImportError:
+        logger.warning(
+            "未安装 mem0ai，Mem0 长期记忆功能不可用。将自动尝试安装：pip install mem0ai"
+        )
+
+    async with _MEM0_INSTALL_LOCK:
+        # 双重检查：等待锁期间可能已由其他协程完成安装
+        try:
+            from mem0 import Memory  # noqa: F401
+
+            return True
+        except ImportError:
+            pass
+
+        if _MEM0_INSTALL_ATTEMPTED:
+            # 已尝试安装过，避免无限重复；直接返回 False
+            return False
+
+        _MEM0_INSTALL_ATTEMPTED = True
+        try:
+            from astrbot.core import pip_installer
+
+            await pip_installer.install(package_name="mem0ai>=0.1.0")
+        except Exception as exc:
+            logger.error("自动安装 mem0ai 失败：%s", exc)
+            return False
+
+        try:
+            importlib.invalidate_caches()
+            from mem0 import Memory  # noqa: F401
+
+            logger.info("mem0ai 安装成功，Mem0 长期记忆功能已恢复可用。")
+            return True
+        except Exception as exc:
+            logger.error("mem0ai 安装后仍无法导入 Mem0：%s", exc)
+            return False
 
 
 def _get_client() -> Any | None:
@@ -15,7 +70,7 @@ def _get_client() -> Any | None:
 
         return Memory
     except ImportError:
-        logger.warning("未安装 mem0ai，Mem0 长期记忆功能不可用。pip install mem0ai")
+        logger.warning("未安装 mem0ai，Mem0 长期记忆功能不可用。")
         return None
 
 
@@ -145,8 +200,14 @@ async def add_from_pending(session_id: str, pending: list[ShortTermEntry]) -> bo
     import asyncio
 
     m = get_mem0()
-    if not m or not pending:
+    if not pending:
         return True
+    if not m:
+        logger.warning(
+            "Mem0 未初始化或不可用，跳过写入（session=%s）。pending 将保留下次重试。",
+            session_id,
+        )
+        return False
 
     def _add() -> None:
         for e in pending:

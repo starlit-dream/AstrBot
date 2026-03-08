@@ -1,9 +1,4 @@
-name: audit-logger
-desc: 记录每轮 LLM 对话的完整上下文与 Mem0 注入信息的审计插件。
-author: NeoAliya
-version: 0.1.0
-
 name: audit_logger
-desc: 审计日志插件，记录每轮对话的完整 LLM 上下文与 Mem0 注入信息，支持 Mem0 深度集成审计。
-author: AstrBot
-version: 1.0.0
+desc: 审计日志插件，记录每轮对话的完整 LLM 上下文与 Mem0 注入信息，支持 Mem0 深度集成审计。包含管理员审计查询命令。
+author: StarlitDream
+version: 1.1.0
