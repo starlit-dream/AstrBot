@@ -3,6 +3,7 @@ import hashlib
 import logging
 import os
 import socket
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -19,6 +20,7 @@ from astrbot.core.config.default import VERSION
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db import BaseDatabase
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.core.utils.datetime_utils import to_utc_isoformat
 from astrbot.core.utils.io import get_local_ip_addresses
 
 from .routes import *
@@ -30,6 +32,9 @@ from .routes.route import Response, RouteContext
 from .routes.session_management import SessionManagementRoute
 from .routes.subagent import SubAgentRoute
 from .routes.t2i import T2iRoute
+
+# Static assets shipped inside the wheel (built during `hatch build`).
+_BUNDLED_DIST = Path(__file__).parent / "dist"
 
 
 class _AddrWithPort(Protocol):
@@ -45,6 +50,13 @@ def _parse_env_bool(value: str | None, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+class AstrBotJSONProvider(DefaultJSONProvider):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return to_utc_isoformat(obj)
+        return super().default(obj)
+
+
 class AstrBotDashboard:
     def __init__(
         self,
@@ -57,20 +69,30 @@ class AstrBotDashboard:
         self.config = core_lifecycle.astrbot_config
         self.db = db
 
-        # 参数指定webui目录
+        # Path priority:
+        # 1. Explicit webui_dir argument
+        # 2. data/dist/ (user-installed / manually updated dashboard)
+        # 3. astrbot/dashboard/dist/ (bundled with the wheel)
         if webui_dir and os.path.exists(webui_dir):
             self.data_path = os.path.abspath(webui_dir)
         else:
-            self.data_path = os.path.abspath(
-                os.path.join(get_astrbot_data_path(), "dist"),
-            )
+            user_dist = os.path.join(get_astrbot_data_path(), "dist")
+            if os.path.exists(user_dist):
+                self.data_path = os.path.abspath(user_dist)
+            elif _BUNDLED_DIST.exists():
+                self.data_path = str(_BUNDLED_DIST)
+                logger.info("Using bundled dashboard dist: %s", self.data_path)
+            else:
+                # Fall back to expected user path (will fail gracefully later)
+                self.data_path = os.path.abspath(user_dist)
 
         self.app = Quart("dashboard", static_folder=self.data_path, static_url_path="/")
         APP = self.app  # noqa
         self.app.config["MAX_CONTENT_LENGTH"] = (
             128 * 1024 * 1024
         )  # 将 Flask 允许的最大上传文件体大小设置为 128 MB
-        cast(DefaultJSONProvider, self.app.json).sort_keys = False
+        self.app.json = AstrBotJSONProvider(self.app)
+        self.app.json.sort_keys = False
         self.app.before_request(self.auth_middleware)
         # token 用于验证请求
         logging.getLogger(self.app.name).removeHandler(default_handler)
@@ -204,6 +226,10 @@ class AstrBotDashboard:
 
     @staticmethod
     def _extract_raw_api_key() -> str | None:
+        if key := request.args.get("api_key"):
+            return key.strip()
+        if key := request.args.get("key"):
+            return key.strip()
         if key := request.headers.get("X-API-Key"):
             return key.strip()
         auth_header = request.headers.get("Authorization", "").strip()
@@ -217,6 +243,7 @@ class AstrBotDashboard:
     def _get_required_open_api_scope(path: str) -> str | None:
         scope_map = {
             "/api/v1/chat": "chat",
+            "/api/v1/chat/ws": "chat",
             "/api/v1/chat/sessions": "chat",
             "/api/v1/configs": "config",
             "/api/v1/file": "file",

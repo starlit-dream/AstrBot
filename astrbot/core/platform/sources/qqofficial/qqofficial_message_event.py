@@ -80,7 +80,7 @@ class QQOfficialMessageEvent(AstrMessageEvent):
 
                 if isinstance(source, botpy.message.C2CMessage):
                     # 真流式传输
-                    current_time = asyncio.get_event_loop().time()
+                    current_time = asyncio.get_running_loop().time()
                     time_since_last_edit = current_time - last_edit_time
 
                     if time_since_last_edit >= throttle_interval:
@@ -90,7 +90,7 @@ class QQOfficialMessageEvent(AstrMessageEvent):
                         )
                         stream_payload["index"] += 1
                         stream_payload["id"] = ret["id"]
-                        last_edit_time = asyncio.get_event_loop().time()
+                        last_edit_time = asyncio.get_running_loop().time()
 
             if isinstance(source, botpy.message.C2CMessage):
                 # 结束流式对话，并且传输 buffer 中剩余的消息
@@ -162,6 +162,8 @@ class QQOfficialMessageEvent(AstrMessageEvent):
                     )
                     payload["media"] = media
                     payload["msg_type"] = 7
+                    payload.pop("markdown", None)
+                    payload["content"] = plain_text or None
                 if record_file_path:  # group record msg
                     media = await self.upload_group_and_c2c_record(
                         record_file_path,
@@ -170,6 +172,8 @@ class QQOfficialMessageEvent(AstrMessageEvent):
                     )
                     payload["media"] = media
                     payload["msg_type"] = 7
+                    payload.pop("markdown", None)
+                    payload["content"] = plain_text or None
                 ret = await self._send_with_markdown_fallback(
                     send_func=lambda retry_payload: self.bot.api.post_group_message(
                         group_openid=source.group_openid,  # type: ignore
@@ -188,6 +192,8 @@ class QQOfficialMessageEvent(AstrMessageEvent):
                     )
                     payload["media"] = media
                     payload["msg_type"] = 7
+                    payload.pop("markdown", None)
+                    payload["content"] = plain_text or None
                 if record_file_path:  # c2c record
                     media = await self.upload_group_and_c2c_record(
                         record_file_path,
@@ -196,6 +202,8 @@ class QQOfficialMessageEvent(AstrMessageEvent):
                     )
                     payload["media"] = media
                     payload["msg_type"] = 7
+                    payload.pop("markdown", None)
+                    payload["content"] = plain_text or None
                 if stream:
                     ret = await self._send_with_markdown_fallback(
                         send_func=lambda retry_payload: self.post_c2c_message(
