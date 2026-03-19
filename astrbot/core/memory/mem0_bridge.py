@@ -10,7 +10,6 @@ from astrbot.core import logger
 
 from .models import ShortTermEntry
 
-
 _MEM0_INSTALL_LOCK = asyncio.Lock()
 _MEM0_INSTALL_ATTEMPTED = False
 
@@ -107,7 +106,9 @@ def _create_memory(config: dict | None = None) -> Any | None:
             # 2) 处理 embedder 配置（结构与 llm 相同，但走 BaseEmbedderConfig）
             embedder = (config or {}).get("embedder") or {}
             embed_conf = embedder.get("config") or {}
-            embed_api_base = embed_conf.get("api_base") or embed_conf.get("openai_base_url")
+            embed_api_base = embed_conf.get("api_base") or embed_conf.get(
+                "openai_base_url"
+            )
 
             if embed_api_base:
                 # 同样避免把 api_base 这种 Mem0 不认识的字段传进去
@@ -221,7 +222,9 @@ async def add_from_pending(session_id: str, pending: list[ShortTermEntry]) -> bo
         await asyncio.to_thread(_add)
         return True
     except Exception as exc:
-        logger.warning("Mem0 add 失败 (session=%s): %s，pending 将保留下次重试", session_id, exc)
+        logger.warning(
+            "Mem0 add 失败 (session=%s): %s，pending 将保留下次重试", session_id, exc
+        )
         return False
 
 

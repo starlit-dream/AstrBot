@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import threading
 from datetime import datetime, timezone
-from typing import Dict
-
-import asyncio
 
 from astrbot.core import logger
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
@@ -19,7 +17,7 @@ _ACTIVE_MAX = 30
 _DIR = os.path.join(get_astrbot_data_path(), "short_term_memory")
 
 # 基于 session_id 的并发锁，确保同一会话的短期窗口读写是串行的。
-_SESSION_LOCKS: Dict[str, asyncio.Lock] = {}
+_SESSION_LOCKS: dict[str, asyncio.Lock] = {}
 _SESSION_LOCKS_GUARD = threading.Lock()
 
 
@@ -85,7 +83,10 @@ def _save_sync(window: ShortTermWindow) -> None:
     )
     with open(p, "w", encoding="utf-8") as f:
         json.dump(
-            {"session_id": window.session_id, "entries": [_entry_to_dict(e) for e in window.entries]},
+            {
+                "session_id": window.session_id,
+                "entries": [_entry_to_dict(e) for e in window.entries],
+            },
             f,
             ensure_ascii=False,
             indent=2,
@@ -155,7 +156,11 @@ def append_turn(
     )
 
 
-def remove_pending_after_add(window: ShortTermWindow, to_remove: list[ShortTermEntry]) -> None:
+def remove_pending_after_add(
+    window: ShortTermWindow, to_remove: list[ShortTermEntry]
+) -> None:
     """Mem0.add 成功后，从窗口中移除这些 pending 条目。"""
     seen = {(e.user, e.assistant, e.timestamp) for e in to_remove}
-    window.entries = [e for e in window.entries if (e.user, e.assistant, e.timestamp) not in seen]
+    window.entries = [
+        e for e in window.entries if (e.user, e.assistant, e.timestamp) not in seen
+    ]
